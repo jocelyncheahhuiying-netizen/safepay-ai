@@ -39,6 +39,10 @@ export default function SendMoney() {
     router.push(`/payment?${params.toString()}`);
   }
 
+  function handleConnectPayPal() {
+    window.location.href = "/api/paypal/auth/login";
+  }
+
   return (
     <main className="min-h-screen bg-[#F5F7FA] text-slate-900">
       {/* Header */}
@@ -79,6 +83,30 @@ export default function SendMoney() {
             </p>
           </div>
 
+          {/* PayPal account connection */}
+          <div className="border-b border-slate-100 bg-blue-50/50 px-6 py-6 sm:px-8">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">
+                  Connect a PayPal Sandbox Account
+                </h3>
+
+                <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">
+                  Authorise your Sandbox account to import its available
+                  profile information into the SafePay recipient directory.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleConnectPayPal}
+                className="shrink-0 rounded-lg bg-[#0070E0] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#005EA6]"
+              >
+                Connect PayPal
+              </button>
+            </div>
+          </div>
+
           {/* Transfer form */}
           <div className="space-y-6 px-6 py-7 sm:px-8">
 
@@ -99,7 +127,7 @@ export default function SendMoney() {
                   setRecipient(e.target.value);
                   setError("");
                 }}
-                placeholder="e.g. Alex Tan, @alextan, alex@example.com or 1234567890"
+                placeholder="e.g. Alex Tan, alex@example.com or 1234567890"
                 className="mt-3 w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
