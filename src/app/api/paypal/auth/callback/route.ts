@@ -1,6 +1,6 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
+
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 async function readResponse(response: Response, stage: string) {
   const raw = await response.text();
@@ -11,14 +11,18 @@ async function readResponse(response: Response, stage: string) {
     data = JSON.parse(raw);
   } catch {
     throw new Error(
-      `${stage}: Invalid response. HTTP ${response.status}. ${raw.slice(0, 200) || "Empty response"}`
+      `${stage}: Invalid response. HTTP ${response.status}. ${
+        raw.slice(0, 200) || "Empty response"
+      }`
     );
   }
 
   if (!response.ok) {
     throw new Error(
       `${stage}: HTTP ${response.status}. ${
-        data.error_description || data.message || "PayPal request failed."
+        data.error_description ||
+        data.message ||
+        "PayPal request failed."
       }`
     );
   }
@@ -93,22 +97,17 @@ export async function GET(request: NextRequest) {
       "Authorization code exchange"
     );
 
-    // Use the access token returned from the user's authorization.
-const accessToken = initialData.access_token;
+    // Step 2: Validate the access token.
+    const accessToken = initialData.access_token;
 
-if (
-  typeof accessToken !== "string" ||
-  !accessToken
-) {
-  throw new Error("PayPal did not provide an access token.");
-}
+    if (typeof accessToken !== "string" || !accessToken) {
+      throw new Error("PayPal did not provide an access token.");
+    }
 
-// Record granted permissions for debugging.
-// Never expose the access token itself.
-const grantedScopes =
-  typeof initialData.scope === "string"
-    ? initialData.scope
-    : "Not provided";
+    const grantedScopes =
+      typeof initialData.scope === "string"
+        ? initialData.scope
+        : "Not provided";
 
     // Step 3: Retrieve the authorised PayPal profile.
     const profileResponse = await fetch(
@@ -127,97 +126,85 @@ const grantedScopes =
       profileResponse,
       "PayPal profile retrieval"
     );
-// Step 4: Save the linked PayPal account.
-const primaryEmail = Array.isArray(profile.emails)
-  ? profile.emails.find(
-      (entry: Record<string, unknown>) => entry.primary === true
-    )
-  : null;
 
-const email =
-  primaryEmail && typeof primaryEmail.value === "string"
-    ? primaryEmail.value
-    : "";
-
-const payerId =
-  typeof profile.payer_id === "string"
-    ? profile.payer_id
-    : "";
-
-if (!payerId) {
-  throw new Error("PayPal did not return a valid payer ID.");
-}
-
-const recipientsPath = path.join(
-  process.cwd(),
-  "src",
-  "data",
-  "sandbox-recipients.json"
-);
-
-let recipients: Record<string, unknown>[] = [];
-
-try {
-  const fileContent = await fs.readFile(recipientsPath, "utf-8");
-  recipients = JSON.parse(fileContent);
-} catch {
-  recipients = [];
-}
-
-const linkedAccount = {
-  accountId: payerId,
-  payerId,
-  displayName: profile.name || "PayPal User",
-  phone: "",
-  country: "",
-  accountType: "Unknown",
-  status:
-    profile.verified_account === true ||
-    profile.verified_account === "true"
-      ? "Verified"
-      : "Unverified",
-  email,
-};
-
-const existingIndex = recipients.findIndex(
-  (recipient) => recipient.accountId === payerId
-);
-
-if (existingIndex >= 0) {
-  recipients[existingIndex] = {
-    ...recipients[existingIndex],
-    ...linkedAccount,
-  };
-} else {
-  recipients.push(linkedAccount);
-}
-
-await fs.writeFile(
-  recipientsPath,
-  JSON.stringify(recipients, null, 2),
-  "utf-8"
-);
-    // Step 5: Return available profile information.
-const response = NextResponse.json({
-  success: true,
-  message: "PayPal account successfully connected to SafePay.",
-  grantedScopes,
-    account: {
-  userId: profile.user_id || profile.sub || null,
-  payerId: profile.payer_id || null,
-  name: profile.name || null,
-  email: Array.isArray(profile.emails)
-    ? (
-        profile.emails.find(
+    // Step 4: Extract the PayPal account information.
+    const primaryEmail = Array.isArray(profile.emails)
+      ? profile.emails.find(
           (entry: Record<string, unknown>) => entry.primary === true
-        ) as Record<string, unknown> | undefined
-      )?.value || null
-    : null,
-  verifiedAccount: profile.verified_account ?? null,
-  accountType: profile.account_type || null,
-  address: profile.address || null,
-},
-});
+        )
+      : null;
+
+    const email =
+      primaryEmail && typeof primaryEmail.value === "string"
+        ? primaryEmail.value
+        : "";
+
+    const payerId =
+      typeof profile.payer_id === "string"
+        ? profile.payer_id
+        : "";
+
+    if (!payerId) {
+      throw new Error("PayPal did not return a valid payer ID.");
+    }
+
+    const displayName =
+      typeof profile.name === "string"
+        ? profile.name
+        : "PayPal User";
+
+    const accountType =
+      typeof profile.account_type === "string"
+        ? profile.account_type
+        : "Unknown";
+
+    const status =
+      profile.verified_account === true ||
+      profile.verified_account === "true"
+        ? "Verified"
+        : "Unverified";
+
+    // Step 5: Save the recipient profile in Supabase.
+    const { error: saveError } = await supabaseAdmin
+      .from("sandbox_recipients")
+      .upsert(
+        {
+          account_id: payerId,
+          payer_id: payerId,
+          display_name: displayName,
+          phone: "",
+          country: "",
+          account_type: accountType,
+          status,
+          email,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: "account_id",
+        }
+      );
+
+    if (saveError) {
+      throw new Error(
+        `Failed to save recipient profile: ${saveError.message}`
+      );
+    }
+
+    // Step 6: Return available profile information.
+    const response = NextResponse.json({
+      success: true,
+      message: "PayPal account successfully connected to SafePay.",
+      grantedScopes,
+      account: {
+        userId: profile.user_id || profile.sub || null,
+        payerId,
+        name: displayName,
+        email: email || null,
+        verifiedAccount: profile.verified_account ?? null,
+        accountType,
+        address: profile.address || null,
+      },
+    });
 
     response.cookies.delete("paypal_auth_state");
 

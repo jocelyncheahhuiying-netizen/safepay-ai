@@ -1,37 +1,35 @@
 
 import { NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-
-type SandboxRecipient = {
-  accountId: string;
-  displayName: string;
-  phone: string;
-  country: string;
-  accountType: string;
-  status: string;
-  email: string;
-};
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function GET() {
-  const filePath = path.join(
-    process.cwd(),
-    "src",
-    "data",
-    "sandbox-recipients.json"
-  );
-
   try {
-    const fileContents = await readFile(filePath, "utf8");
+    const { data, error } = await supabaseAdmin
+      .from("sandbox_recipients")
+      .select(
+        "account_id, payer_id, display_name, phone, country, account_type, status, email"
+      )
+      .order("created_at", { ascending: true });
 
-    const recipients = JSON.parse(
-      fileContents
-    ) as SandboxRecipient[];
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const recipients = (data || []).map((row) => ({
+      accountId: row.account_id,
+      payerId: row.payer_id,
+      displayName: row.display_name,
+      phone: row.phone,
+      country: row.country,
+      accountType: row.account_type,
+      status: row.status,
+      email: row.email,
+    }));
 
     return NextResponse.json(
       {
         success: true,
-        source: "imported-sandbox-data",
+        source: "supabase-sandbox-data",
         refreshedAt: new Date().toISOString(),
         totalRecipients: recipients.length,
         recipients,
@@ -43,34 +41,15 @@ export async function GET() {
       }
     );
   } catch (error) {
-    // A missing file is expected on a fresh deployment.
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
-      return NextResponse.json(
-        {
-          success: true,
-          source: "empty-directory",
-          refreshedAt: new Date().toISOString(),
-          totalRecipients: 0,
-          recipients: [],
-        },
-        {
-          headers: {
-            "Cache-Control": "no-store, max-age=0",
-          },
-        }
-      );
-    }
-
     console.error("Recipient directory refresh failed:", error);
 
     return NextResponse.json(
       {
         success: false,
-        error: "Unable to refresh the recipient directory.",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to refresh the recipient directory.",
       },
       { status: 500 }
     );
