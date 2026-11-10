@@ -39,3 +39,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# Local PayPal Sandbox recipient data
+src/data/sandbox-recipients.json
