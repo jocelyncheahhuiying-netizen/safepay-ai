@@ -14,15 +14,14 @@ type SandboxRecipient = {
 };
 
 export async function GET() {
-  try {
-    const filePath = path.join(
-      process.cwd(),
-      "src",
-      "data",
-      "sandbox-recipients.json"
-    );
+  const filePath = path.join(
+    process.cwd(),
+    "src",
+    "data",
+    "sandbox-recipients.json"
+  );
 
-    // Read the latest imported recipient data.
+  try {
     const fileContents = await readFile(filePath, "utf8");
 
     const recipients = JSON.parse(
@@ -44,6 +43,28 @@ export async function GET() {
       }
     );
   } catch (error) {
+    // A missing file is expected on a fresh deployment.
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return NextResponse.json(
+        {
+          success: true,
+          source: "empty-directory",
+          refreshedAt: new Date().toISOString(),
+          totalRecipients: 0,
+          recipients: [],
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store, max-age=0",
+          },
+        }
+      );
+    }
+
     console.error("Recipient directory refresh failed:", error);
 
     return NextResponse.json(
